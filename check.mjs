@@ -1,7 +1,10 @@
 import { chromium } from 'playwright';
 import nodemailer from 'nodemailer';
 
-const START_URL = 'https://sede.administracionespublicas.gob.es/pagina/index/directorio/icpplus';
+const URLS = [
+  'https://icp.administracionelectronica.gob.es/icpplus/index.html',
+  'https://icp.administracionelectronica.gob.es/icpplustiem/index.html'
+];
 const targetEmail = process.env.ALERT_EMAIL;
 
 function requireEnv(name) {
@@ -9,64 +12,48 @@ function requireEnv(name) {
   if (!value) throw new Error(`Missing required secret: ${name}`);
   return value;
 }
-
 async function sendAlert(subject, text) {
   const transporter = nodemailer.createTransport({
-    host: requireEnv('SMTP_HOST'),
-    port: Number(process.env.SMTP_PORT || 587),
+    host: requireEnv('SMTP_HOST'), port: Number(process.env.SMTP_PORT || 587),
     secure: String(process.env.SMTP_SECURE || 'false').toLowerCase() === 'true',
     auth: { user: requireEnv('SMTP_USER'), pass: requireEnv('SMTP_PASS') },
   });
-  await transporter.sendMail({
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
-    to: targetEmail, subject, text,
-  });
+  await transporter.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to: targetEmail, subject, text });
 }
 
 const browser = await chromium.launch({ headless: true });
 let ok = false;
+let workingUrl = '';
 
 try {
   const page = await browser.newPage({ locale: 'es-ES' });
-  await page.goto(START_URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
+  for (const url of URLS) {
+    try {
+      console.log('TEST:', url);
+      const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      console.log('HTTP:', response?.status(), 'FINAL URL:', page.url(), 'TITLE:', await page.title());
+      await page.waitForTimeout(1500);
 
-  for (let i = 0; i < 5; i++) {
-    console.log(`PAGE ${i + 1} URL: ${page.url()}`);
-    console.log(`TITLE: ${await page.title()}`);
+      const body = (await page.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ');
+      console.log('BODY:', body.slice(0, 3000));
 
-    const selects = page.locator('select');
-    console.log(`SELECTS: ${await selects.count()}`);
-    for (let s = 0; s < await selects.count(); s++) {
-      const opts = await selects.nth(s).locator('option').allTextContents().catch(() => []);
-      console.log(`SELECT ${s} OPTIONS: ${opts.join(' | ').slice(0, 5000)}`);
-      if (opts.some(x => /madrid/i.test(x))) {
-        ok = true;
-        break;
+      const selects = page.locator('select');
+      for (let i = 0; i < await selects.count(); i++) {
+        const opts = await selects.nth(i).locator('option').allTextContents().catch(() => []);
+        console.log('OPTIONS:', opts.join(' | ').slice(0, 5000));
+        if (opts.some(x => /madrid/i.test(x))) {
+          ok = true;
+          workingUrl = page.url();
+          break;
+        }
       }
+      if (ok) break;
+    } catch (e) {
+      console.log('URL FAILED:', e?.message || String(e));
     }
-    if (ok) break;
-
-    const body = (await page.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 8000);
-    console.log(`BODY: ${body}`);
-
-    const candidates = page.getByRole('link', { name: /cita previa|acceder al procedimiento|acceder|entrar|continuar|extranjer|icp\+/i });
-    const count = await candidates.count();
-    console.log(`NAV CANDIDATES: ${count}`);
-    if (!count) break;
-
-    const href = await candidates.first().getAttribute('href').catch(() => null);
-    console.log(`CLICKING: ${(await candidates.first().innerText().catch(() => ''))} href=${href}`);
-    await candidates.first().click();
-    await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
-    await page.waitForTimeout(1000);
   }
 
-  await page.screenshot({ path: 'icp-debug.png', fullPage: true }).catch(() => {});
-  console.log(ok ? 'OK: Madrid disponible dans le sélecteur.' : 'KO: Madrid non détecté.');
-  if (!ok) process.exitCode = 1;
-} catch (err) {
-  console.error(err?.stack || String(err));
-  process.exitCode = 1;
+  console.log(ok ? 'OK: Madrid est sélectionnable.' : 'KO: Madrid non détecté / ICP+ indisponible.');
 } finally {
   await browser.close();
 }
@@ -75,6 +62,10 @@ if (ok && process.env.SEND_EMAIL === 'true') {
   if (!targetEmail) throw new Error('Missing required secret: ALERT_EMAIL');
   await sendAlert(
     '🟢 ICP+ fonctionne — Madrid est accessible',
-    `Le site ICP+ s’affiche correctement et Madrid est sélectionnable.\n\n${START_URL}\n`
+    `Madrid est actuellement disponible dans le sélecteur ICP+.\n\nOuvrir : ${workingUrl}\n`
   );
 }
+
+// Important: an unavailable ICP+ site is a normal monitoring result, not a workflow failure.
+// Exit successfully so GitHub does not generate "workflow failed" notifications.
+process.exit(0);
