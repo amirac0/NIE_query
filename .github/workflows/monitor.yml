@@ -10,6 +10,7 @@ on:
       - main
     paths:
       - '.github/workflows/monitor.yml'
+      - 'check.mjs'
 
 jobs:
   check:
@@ -18,8 +19,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Les étapes de diagnostic ne font volontairement pas échouer le workflow :
-      # GitHub ne doit pas envoyer de notification "workflow failed".
       - name: Install WireGuard and MozWire
         id: vpn_tools
         continue-on-error: true
@@ -45,10 +44,9 @@ jobs:
           mkdir -p /tmp/mozilla-wg
           /tmp/mozwire device remove nie-query-github >/dev/null 2>&1 || true
           /tmp/mozwire relay save '^es-mad-wg-' -o /tmp/mozilla-wg -n 1 --tunnel ipv4 --name nie-query-github
-
           CONF="$(find /tmp/mozilla-wg -maxdepth 1 -type f -name '*.conf' | head -n 1)"
           test -n "$CONF" || { echo "No Madrid WireGuard configuration generated"; exit 1; }
-
+          chmod 600 "$CONF"
           sudo wg-quick up "$CONF"
           COUNTRY="$(curl -4fsS --max-time 15 https://ipinfo.io/country | tr -d '\r\n')"
           echo "VPN exit country: $COUNTRY"
@@ -59,10 +57,8 @@ jobs:
         run: |
           echo "vpn_tools outcome: ${{ steps.vpn_tools.outcome }}"
           echo "vpn outcome: ${{ steps.vpn.outcome }}"
-          if [ -f /tmp/mozilla-wg/vpn-error.log ]; then cat /tmp/mozilla-wg/vpn-error.log; fi
           sudo wg show || true
-          ip -4 route || true
-          curl -4v --max-time 15 https://ipinfo.io/country || true
+          curl -4fsS --max-time 15 https://ipinfo.io/country || true
 
       - uses: actions/setup-node@v4
         if: steps.vpn.outcome == 'success'
@@ -73,11 +69,11 @@ jobs:
         if: steps.vpn.outcome == 'success'
         run: npm install
 
-      - name: Install Chromium
+      - name: Install Firefox
         if: steps.vpn.outcome == 'success'
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps firefox
 
-      - name: Check ICP+ Madrid
+      - name: Check ICP+ Madrid with Firefox
         if: steps.vpn.outcome == 'success'
         continue-on-error: true
         env:
