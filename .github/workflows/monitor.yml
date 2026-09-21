@@ -2,8 +2,10 @@ name: Monitor ICP+ Madrid
 
 on:
   schedule:
-    # Toutes les 10 minutes.
-    - cron: '3-59/10 * * * *'
+    # Toutes les 20 minutes, heure de Madrid.
+    # Décalé de quelques minutes pour éviter les pics de charge GitHub Actions.
+    - cron: '7-59/20 * * * *'
+      timezone: 'Europe/Madrid'
   workflow_dispatch:
   push:
     branches:
