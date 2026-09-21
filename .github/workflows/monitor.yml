@@ -2,7 +2,8 @@ name: Monitor ICP+ Madrid
 
 on:
   schedule:
-    - cron: '17,37,57 * * * *'
+    # Tous les jours à 08:23 UTC (10:23 en Espagne en heure d'été, 09:23 en hiver)
+    - cron: '23 8 * * *'
   workflow_dispatch:
   push:
     branches:
@@ -13,14 +14,54 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install WireGuard and MozWire
+        env:
+          MOZ_TOKEN: ${{ secrets.MOZ_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$MOZ_TOKEN" || { echo "MOZ_TOKEN secret is missing"; exit 1; }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq wireguard-tools curl
+          curl -fsSL -o /tmp/mozwire https://github.com/NilsIrl/MozWire/releases/download/v0.8.1/mozwire-linux
+          chmod +x /tmp/mozwire
+          /tmp/mozwire --version
+
+      - name: Connect Mozilla VPN through Madrid, Spain
+        env:
+          MOZ_TOKEN: ${{ secrets.MOZ_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/mozilla-wg
+
+          # Keep only one temporary GitHub device in the Mozilla VPN device list.
+          /tmp/mozwire device remove nie-query-github >/dev/null 2>&1 || true
+
+          # Mozilla VPN uses Mullvad relays; Madrid WireGuard hosts use es-mad-wg-*.
+          /tmp/mozwire relay save '^es-mad-wg-' -o /tmp/mozilla-wg -n 1 --tunnel ipv4 --name nie-query-github
+
+          CONF="$(find /tmp/mozilla-wg -maxdepth 1 -type f -name '*.conf' | head -n 1)"
+          test -n "$CONF" || { echo "No Madrid WireGuard configuration generated"; exit 1; }
+
+          sudo wg-quick up "$CONF"
+
+          COUNTRY="$(curl -4fsS --max-time 15 https://ipinfo.io/country | tr -d '\r\n')"
+          echo "VPN exit country: $COUNTRY"
+          if [ "$COUNTRY" != "ES" ]; then
+            echo "Expected Spanish VPN exit, got: $COUNTRY"
+            exit 1
+          fi
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+
       - run: npm install
       - run: npx playwright install --with-deps chromium
+
       - name: Check ICP+ Madrid
         env:
           SEND_EMAIL: 'true'
@@ -32,3 +73,9 @@ jobs:
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           SMTP_FROM: ${{ secrets.SMTP_FROM }}
         run: npm run check
+
+      - name: Disconnect VPN
+        if: always()
+        run: |
+          CONF="$(find /tmp/mozilla-wg -maxdepth 1 -type f -name '*.conf' 2>/dev/null | head -n 1)"
+          if [ -n "$CONF" ]; then sudo wg-quick down "$CONF" || true; fi
