@@ -1,0 +1,12 @@
+{
+  "name": "nie-query-monitor",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node check.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.55.0",
+    "nodemailer": "^7.0.6"
+  }
+}
