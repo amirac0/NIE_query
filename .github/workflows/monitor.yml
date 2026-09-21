@@ -2,8 +2,8 @@ name: Monitor ICP+ Madrid
 
 on:
   schedule:
-    # Tous les jours à 08:23 UTC (10:23 en Espagne en heure d'été, 09:23 en hiver)
-    - cron: '23 8 * * *'
+    # Toutes les 10 minutes, décalé des minutes rondes pour limiter les retards GitHub Actions
+    - cron: '3-59/10 * * * *'
   workflow_dispatch:
   push:
     branches:
