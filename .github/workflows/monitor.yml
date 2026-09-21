@@ -2,8 +2,13 @@ name: Monitor ICP+ Madrid
 
 on:
   schedule:
-    - cron: '7-59/10 * * * *'
+    - cron: '17,37,57 * * * *'
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/monitor.yml'
 
 jobs:
   check:
