@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { firefox } from 'playwright';
 import nodemailer from 'nodemailer';
 
 const TARGET = 'https://icp.administracionelectronica.gob.es/icpplus/index.html';
@@ -25,11 +25,7 @@ async function sendAlert(subject, text) {
   });
 }
 
-const browser = await chromium.launch({
-  headless: true,
-  args: ['--lang=es-ES'],
-});
-
+const browser = await firefox.launch({ headless: true });
 let accessible = false;
 let finalUrl = '';
 
@@ -38,20 +34,15 @@ try {
     locale: 'es-ES',
     timezoneId: 'Europe/Madrid',
     viewport: { width: 1365, height: 768 },
-    extraHTTPHeaders: {
-      'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-    },
+    extraHTTPHeaders: { 'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8' },
   });
 
   const page = await context.newPage();
+  console.log('BROWSER: Firefox');
   console.log('TEST:', TARGET);
 
   try {
-    const response = await page.goto(TARGET, {
-      waitUntil: 'domcontentloaded',
-      timeout: 45000,
-    });
-
+    const response = await page.goto(TARGET, { waitUntil: 'domcontentloaded', timeout: 45000 });
     const status = response?.status() ?? 0;
     finalUrl = page.url();
     const title = await page.title().catch(() => '');
@@ -60,16 +51,15 @@ try {
     console.log('HTTP:', status, 'FINAL URL:', finalUrl, 'TITLE:', title);
     console.log('BODY:', body.slice(0, 1200));
 
-    const blocked =
-      status === 403 ||
+    const officialHost = (() => {
+      try { return new URL(finalUrl).hostname === 'icp.administracionelectronica.gob.es'; }
+      catch { return false; }
+    })();
+    const blocked = status === 403 ||
       /intrusion prevention|fortigate|access denied|forbidden/i.test(`${title} ${body}`);
 
-    // For this phase, success means the real ICP+ page itself is reachable.
-    accessible = status >= 200 && status < 400 && !blocked;
-
-    console.log(accessible
-      ? 'OK: la vraie page ICP+ est accessible.'
-      : 'KO: ICP+ est bloqué ou indisponible.');
+    accessible = status >= 200 && status < 400 && officialHost && body.length > 100 && !blocked;
+    console.log(accessible ? 'OK: la vraie page ICP+ est accessible.' : 'KO: ICP+ est bloqué ou indisponible.');
   } catch (e) {
     console.log('ICP+ FAILED:', e?.message || String(e));
   }
@@ -83,12 +73,11 @@ if (accessible && process.env.SEND_EMAIL === 'true') {
   if (!targetEmail) throw new Error('Missing required secret: ALERT_EMAIL');
   await sendAlert(
     '🟢 ICP+ est accessible',
-    `La page ICP+ est accessible depuis le contrôle automatique.\n\nPage : ${finalUrl || TARGET}\n`
+    `La page ICP+ est accessible depuis Firefox via Mozilla VPN Espagne.\n\nPage : ${finalUrl || TARGET}\n`
   );
   console.log('EMAIL: alerte envoyée.');
 } else {
   console.log('EMAIL: aucune alerte envoyée.');
 }
 
-// A blocked/unavailable site is a monitoring result, not a workflow failure.
 process.exit(0);
