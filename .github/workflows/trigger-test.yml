@@ -1,0 +1,20 @@
+name: Automatic trigger diagnostic
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '11,31,51 * * * *'
+  workflow_dispatch:
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show trigger
+        run: |
+          echo "Automatic trigger diagnostic"
+          echo "event=${{ github.event_name }}"
+          echo "ref=${{ github.ref }}"
+          echo "sha=${{ github.sha }}"
