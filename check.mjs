@@ -31,6 +31,9 @@ let finalUrl = '';
 
 try {
   const context = await browser.newContext({
+    // ICP+ can present a certificate chain that Firefox on GitHub runners does not trust.
+    // We still validate the final hostname and reject known block pages below.
+    ignoreHTTPSErrors: true,
     locale: 'es-ES',
     timezoneId: 'Europe/Madrid',
     viewport: { width: 1365, height: 768 },
